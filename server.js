@@ -115,6 +115,9 @@ const User = mongoose.model('User', new mongoose.Schema({
     joined: { type: Date, default: Date.now }
 }));
 
+// User Upload Model
+const UserUpload = require('./models/UserUpload');
+
 // Material Schema - UPDATED to store ImgBB URL instead of local path
 const Material = mongoose.model('Material', new mongoose.Schema({
     title: String,
@@ -166,7 +169,7 @@ async function verifyToken(req, res, next) {
 
 // ================= MULTER CONFIG - UPDATED to use memory storage =================
 const storage = multer.memoryStorage(); // Store in memory instead of disk
-const upload = multer({ 
+const upload = multer({
     storage: storage,
     fileFilter: (req, file, cb) => {
         if (file.mimetype === 'application/pdf') {
@@ -337,18 +340,18 @@ app.post('/upload-material', verifyToken, upload.single('file'), async (req, res
 
         // Save to database with ImgBB URL
         const newMaterial = new Material({
-            title, 
-            type, 
-            semester, 
-            subject, 
+            title,
+            type,
+            semester,
+            subject,
             description,
             fileName: fileName,
             fileUrl: fileUrl  // Store ImgBB URL instead of local path
         });
-        
+
         await newMaterial.save();
-        
-        res.status(201).json({ 
+
+        res.status(201).json({
             message: "Material uploaded successfully!",
             fileUrl: fileUrl,
             fileName: fileName
@@ -366,6 +369,188 @@ app.get('/materials', verifyToken, async (req, res) => {
         res.json(materials);
     } catch (error) {
         res.status(500).json({ message: "Error fetching materials" });
+    }
+});
+
+// ✏️ UPDATE MATERIAL (Protected)
+app.put('/materials/:id', verifyToken, async (req, res) => {
+    try {
+        const materialId = req.params.id;
+        const updateData = req.body;
+
+        const updatedMaterial = await Material.findByIdAndUpdate(
+            materialId,
+            updateData,
+            { new: true }
+        );
+
+        if (!updatedMaterial) {
+            return res.status(404).json({ message: "Material not found" });
+        }
+
+        res.json({
+            message: "Material updated successfully",
+            material: updatedMaterial
+        });
+    } catch (error) {
+        console.error('Error updating material:', error);
+        res.status(500).json({ message: "Error updating material" });
+    }
+});
+
+// 🗑 DELETE MATERIAL (Protected)
+app.delete('/materials/:id', verifyToken, async (req, res) => {
+    try {
+        const materialId = req.params.id;
+        const deletedMaterial = await Material.findByIdAndDelete(materialId);
+
+        if (!deletedMaterial) {
+            return res.status(404).json({ message: "Material not found" });
+        }
+
+        res.json({ message: "Material deleted successfully" });
+    } catch (error) {
+        console.error('Error deleting material:', error);
+        res.status(500).json({ message: "Error deleting material" });
+    }
+});
+
+// ================= USER UPLOAD MANAGEMENT ROUTES =================
+
+// 📥 GET ALL PENDING USER UPLOADS (ADMIN ONLY)
+app.get('/api/user-uploads/pending', verifyToken, async (req, res) => {
+    try {
+        const pendingUploads = await UserUpload.find({ status: 'pending' }).sort({ uploadedAt: -1 });
+        res.json(pendingUploads);
+    } catch (error) {
+        console.error('Error fetching pending uploads:', error);
+        res.status(500).json({ message: "Error fetching pending uploads" });
+    }
+});
+
+// 📥 GET ALL USER UPLOADS (ADMIN ONLY)
+app.get('/api/user-uploads', verifyToken, async (req, res) => {
+    try {
+        const uploads = await UserUpload.find().sort({ uploadedAt: -1 });
+        res.json(uploads);
+    } catch (error) {
+        console.error('Error fetching uploads:', error);
+        res.status(500).json({ message: "Error fetching uploads" });
+    }
+});
+
+// ✅ APPROVE USER UPLOAD (ADMIN ONLY)
+app.put('/api/user-uploads/:id/approve', verifyToken, async (req, res) => {
+    try {
+        const uploadId = req.params.id;
+        const updatedUpload = await UserUpload.findByIdAndUpdate(
+            uploadId,
+            { status: 'approved' },
+            { new: true }
+        );
+
+        if (!updatedUpload) {
+            return res.status(404).json({ message: "Upload not found" });
+        }
+
+        res.json({
+            message: "Upload approved successfully",
+            upload: updatedUpload
+        });
+    } catch (error) {
+        console.error('Error approving upload:', error);
+        res.status(500).json({ message: "Error approving upload" });
+    }
+});
+
+// ❌ REJECT USER UPLOAD (ADMIN ONLY)
+app.put('/api/user-uploads/:id/reject', verifyToken, async (req, res) => {
+    try {
+        const uploadId = req.params.id;
+        const updatedUpload = await UserUpload.findByIdAndUpdate(
+            uploadId,
+            { status: 'rejected' },
+            { new: true }
+        );
+
+        if (!updatedUpload) {
+            return res.status(404).json({ message: "Upload not found" });
+        }
+
+        res.json({
+            message: "Upload rejected successfully",
+            upload: updatedUpload
+        });
+    } catch (error) {
+        console.error('Error rejecting upload:', error);
+        res.status(500).json({ message: "Error rejecting upload" });
+    }
+});
+
+// ⏳ SET TO PENDING (ADMIN ONLY)
+app.put('/api/user-uploads/:id/pending', verifyToken, async (req, res) => {
+    try {
+        const uploadId = req.params.id;
+        const updatedUpload = await UserUpload.findByIdAndUpdate(
+            uploadId,
+            { status: 'pending' },
+            { new: true }
+        );
+
+        if (!updatedUpload) {
+            return res.status(404).json({ message: "Upload not found" });
+        }
+
+        res.json({
+            message: "Upload status set to pending",
+            upload: updatedUpload
+        });
+    } catch (error) {
+        console.error('Error setting to pending:', error);
+        res.status(500).json({ message: "Error setting to pending" });
+    }
+});
+
+// ✏️ UPDATE USER UPLOAD (ADMIN ONLY)
+app.put('/api/user-uploads/:id', verifyToken, async (req, res) => {
+    try {
+        const uploadId = req.params.id;
+        const updateData = req.body;
+
+        const updatedUpload = await UserUpload.findByIdAndUpdate(
+            uploadId,
+            updateData,
+            { new: true }
+        );
+
+        if (!updatedUpload) {
+            return res.status(404).json({ message: "Upload not found" });
+        }
+
+        res.json({
+            message: "Upload updated successfully",
+            upload: updatedUpload
+        });
+    } catch (error) {
+        console.error('Error updating upload:', error);
+        res.status(500).json({ message: "Error updating upload" });
+    }
+});
+
+// 🗑 DELETE USER UPLOAD (ADMIN ONLY)
+app.delete('/api/user-uploads/:id', verifyToken, async (req, res) => {
+    try {
+        const uploadId = req.params.id;
+        const deletedUpload = await UserUpload.findByIdAndDelete(uploadId);
+
+        if (!deletedUpload) {
+            return res.status(404).json({ message: "Upload not found" });
+        }
+
+        res.json({ message: "Upload deleted successfully" });
+    } catch (error) {
+        console.error('Error deleting upload:', error);
+        res.status(500).json({ message: "Error deleting upload" });
     }
 });
 
