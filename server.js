@@ -1,0 +1,442 @@
+require('dotenv').config();
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const path = require('path');
+const multer = require('multer');
+const fs = require('fs');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
+const FormData = require('form-data');
+const axios = require('axios');
+
+// Import registration components
+const { registerUser } = require('./register/registerRoutes');
+const AuthUser = require('./register/authSchema');
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+const JWT_SECRET = process.env.JWT_SECRET;
+const IMG_BB_KEY = process.env.IMG_BB_KEY;
+
+// ================= CREATE UPLOADS FOLDER (Optional - for temporary storage) =================
+const uploadDir = './uploads';
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir);
+}
+
+// ================= MIDDLEWARE =================
+app.use(cors({
+    origin: '*',
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(__dirname));
+app.use('/uploads', express.static('uploads'));
+
+// Serve index.html as default
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// ================= LOGIN ATTEMPT TRACKING =================
+const loginAttempts = new Map(); // key: email, value: { attempts: number, lockoutUntil: Date }
+
+// Custom login limiter middleware
+const loginLimiter = (req, res, next) => {
+    const { email } = req.body;
+
+    if (!email) {
+        return res.status(400).json({
+            success: false,
+            message: 'Email is required'
+        });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const attemptData = loginAttempts.get(normalizedEmail);
+    const now = Date.now();
+
+    // Check if user is still locked out
+    if (attemptData && attemptData.lockoutUntil > now) {
+        const remainingTime = Math.ceil((attemptData.lockoutUntil - now) / 1000);
+        return res.status(429).json({
+            success: false,
+            message: `Too many login attempts. Please try again after ${remainingTime} seconds.`,
+            lockoutTime: remainingTime
+        });
+    }
+
+    // Reset attempts if lockout period has passed
+    if (attemptData && attemptData.lockoutUntil <= now) {
+        loginAttempts.delete(normalizedEmail);
+    }
+
+    next();
+};
+
+// Function to increment login attempts
+const incrementLoginAttempts = (email) => {
+    const normalizedEmail = email.toLowerCase().trim();
+    const attemptData = loginAttempts.get(normalizedEmail) || { attempts: 0, lockoutUntil: null };
+
+    attemptData.attempts++;
+
+    // Lockout after 5 failed attempts for 90 seconds
+    if (attemptData.attempts >= 5) {
+        attemptData.lockoutUntil = Date.now() + 90 * 1000; // 90 seconds
+    }
+
+    loginAttempts.set(normalizedEmail, attemptData);
+};
+
+// Function to reset login attempts (on successful login)
+const resetLoginAttempts = (email) => {
+    const normalizedEmail = email.toLowerCase().trim();
+    loginAttempts.delete(normalizedEmail);
+};
+
+// ================= MONGODB CONNECTION =================
+mongoose.connect(process.env.MONGO_URI)
+    .then(() => console.log('✅ Connected to MongoDB'))
+    .catch(err => console.error('❌ MongoDB Error:', err.message));
+
+// ================= SCHEMAS =================
+
+// Regular User Schema (for user management)
+const User = mongoose.model('User', new mongoose.Schema({
+    name: String,
+    email: { type: String, required: true, unique: true },
+    password: { type: String, required: true },
+    joined: { type: Date, default: Date.now }
+}));
+
+// Material Schema - UPDATED to store ImgBB URL instead of local path
+const Material = mongoose.model('Material', new mongoose.Schema({
+    title: String,
+    type: String,
+    semester: String,
+    subject: String,
+    description: String,
+    fileName: String,
+    fileUrl: String,  // Changed from filePath to fileUrl
+    uploadedAt: { type: Date, default: Date.now }
+}));
+
+// Token Blacklist Schema (for logout)
+const TokenBlacklist = mongoose.model('TokenBlacklist', new mongoose.Schema({
+    token: { type: String, required: true, unique: true },
+    expiresAt: { type: Date, required: true }
+}));
+
+// ================= JWT MIDDLEWARE =================
+
+// Verify JWT token
+async function verifyToken(req, res, next) {
+    try {
+        const authHeader = req.headers.authorization;
+
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return res.status(401).json({ success: false, message: 'No token provided' });
+        }
+
+        const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+
+        // Check if token is blacklisted
+        const blacklisted = await TokenBlacklist.findOne({ token });
+        if (blacklisted) {
+            return res.status(401).json({ success: false, message: 'Token has been invalidated' });
+        }
+
+        // Verify token
+        const decoded = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ success: false, message: 'Token expired' });
+        }
+        return res.status(401).json({ success: false, message: 'Invalid token' });
+    }
+}
+
+// ================= MULTER CONFIG - UPDATED to use memory storage =================
+const storage = multer.memoryStorage(); // Store in memory instead of disk
+const upload = multer({ 
+    storage: storage,
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf') {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PDF files are allowed!'), false);
+        }
+    },
+    limits: {
+        fileSize: 10 * 1024 * 1024 // 10MB limit
+    }
+});
+
+// ================= AUTHENTICATION ROUTES =================
+
+// 📝 REGISTER (using modular registration route)
+app.post('/api/register', registerUser);
+
+// 🔐 LOGIN (ADMIN ONLY)
+app.post('/api/login', loginLimiter, async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        // Validate input
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email and password are required'
+            });
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+
+        // Find user
+        const user = await AuthUser.findOne({ email: normalizedEmail });
+
+        // If user doesn't exist
+        if (!user) {
+            incrementLoginAttempts(normalizedEmail);
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password'
+            });
+        }
+
+        // Compare password
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            incrementLoginAttempts(normalizedEmail);
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid email or password'
+            });
+        }
+
+        // Check if user role is NOT admin - redirect to index.html
+        if (user.role !== 'admin') {
+            incrementLoginAttempts(normalizedEmail);
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Admin privileges required.',
+                redirect: '/index.html'
+            });
+        }
+
+        // Reset attempt count on successful login
+        resetLoginAttempts(normalizedEmail);
+
+        // Generate JWT token (only for admin)
+        const token = jwt.sign(
+            {
+                userId: user._id,
+                email: user.email,
+                role: user.role
+            },
+            JWT_SECRET,
+            { expiresIn: '24h' }
+        );
+
+        res.status(200).json({
+            success: true,
+            message: 'Login successful!',
+            token: token,
+            user: {
+                email: user.email,
+                id: user._id,
+                role: user.role
+            }
+        });
+
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during login'
+        });
+    }
+});
+
+// 🚪 LOGOUT
+app.post('/api/logout', verifyToken, async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        const token = authHeader.substring(7);
+
+        // Decode token to get expiration
+        const decoded = jwt.decode(token);
+        const expiresAt = new Date(decoded.exp * 1000);
+
+        // Add token to blacklist
+        const blacklistedToken = new TokenBlacklist({
+            token: token,
+            expiresAt: expiresAt
+        });
+
+        await blacklistedToken.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Logout successful'
+        });
+
+    } catch (error) {
+        console.error('Logout error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during logout'
+        });
+    }
+});
+
+// ================= PROTECTED ROUTES =================
+
+// 📤 UPLOAD MATERIAL (Protected) - UPDATED to upload to ImgBB
+app.post('/upload-material', verifyToken, upload.single('file'), async (req, res) => {
+    try {
+        const { title, type, semester, subject, description } = req.body;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ message: 'No file uploaded' });
+        }
+
+        // Convert buffer to base64
+        const base64File = file.buffer.toString('base64');
+
+        // Upload to ImgBB
+        const formData = new FormData();
+        formData.append('image', base64File);
+        formData.append('name', file.originalname);
+
+        const imgbbResponse = await axios.post(
+            `https://api.imgbb.com/1/upload?key=${IMG_BB_KEY}`,
+            formData,
+            {
+                headers: {
+                    ...formData.getHeaders()
+                }
+            }
+        );
+
+        if (!imgbbResponse.data.success) {
+            return res.status(500).json({ message: 'Failed to upload file to ImgBB' });
+        }
+
+        const fileUrl = imgbbResponse.data.data.url;
+        const fileName = file.originalname;
+
+        // Save to database with ImgBB URL
+        const newMaterial = new Material({
+            title, 
+            type, 
+            semester, 
+            subject, 
+            description,
+            fileName: fileName,
+            fileUrl: fileUrl  // Store ImgBB URL instead of local path
+        });
+        
+        await newMaterial.save();
+        
+        res.status(201).json({ 
+            message: "Material uploaded successfully!",
+            fileUrl: fileUrl,
+            fileName: fileName
+        });
+    } catch (error) {
+        console.error('Upload error:', error);
+        res.status(400).json({ message: error.message });
+    }
+});
+
+// 📚 FETCH MATERIALS (Protected)
+app.get('/materials', verifyToken, async (req, res) => {
+    try {
+        const materials = await Material.find().sort({ uploadedAt: -1 });
+        res.json(materials);
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching materials" });
+    }
+});
+
+// ================= USER MANAGEMENT ROUTES =================
+
+// 👤 ADD USER
+app.post('/users', async (req, res) => {
+    try {
+        const newUser = new User(req.body);
+        await newUser.save();
+        res.status(201).json(newUser);
+    } catch (error) {
+        res.status(400).json({ message: "Email already exists" });
+    }
+});
+
+// 👥 GET ALL USERS (PROTECTED)
+app.get('/users', verifyToken, async (req, res) => {
+    try {
+        const users = await User.find().sort({ joined: -1 });
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching users" });
+    }
+});
+
+// 👥 GET ALL USERS - Alias for /api/users (PROTECTED)
+app.get('/api/users', verifyToken, async (req, res) => {
+    try {
+        const users = await User.find().sort({ joined: -1 });
+        res.json(users);
+    } catch (error) {
+        res.status(500).json({ message: "Error fetching users" });
+    }
+});
+
+// ✏️ UPDATE USER (PROTECTED)
+app.put('/users/:id', verifyToken, async (req, res) => {
+    try {
+        const { name, email, password } = req.body;
+        const updatedUser = await User.findByIdAndUpdate(
+            req.params.id,
+            { name, email, password },
+            { new: true }
+        );
+        res.json(updatedUser);
+    } catch (error) {
+        res.status(400).json({ message: "Error updating user" });
+    }
+});
+
+// 🗑 DELETE USER (PROTECTED)
+app.delete('/users/:id', verifyToken, async (req, res) => {
+    try {
+        await User.findByIdAndDelete(req.params.id);
+        res.json({ message: "User deleted" });
+    } catch (error) {
+        res.status(400).json({ message: "Error deleting user" });
+    }
+});
+
+// ================= CLEANUP EXPIRED TOKENS =================
+// Run cleanup every hour
+setInterval(async () => {
+    try {
+        await TokenBlacklist.deleteMany({ expiresAt: { $lt: new Date() } });
+        console.log('🧹 Cleaned up expired tokens');
+    } catch (error) {
+        console.error('Error cleaning up tokens:', error);
+    }
+}, 60 * 60 * 1000); // 1 hour
+
+// ================= START SERVER =================
+app.listen(PORT, () => console.log(`🚀 Backend running at http://localhost:${PORT}`));
