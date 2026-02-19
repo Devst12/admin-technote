@@ -402,14 +402,7 @@
 
             <!-- Materials Content -->
             <div class="materials-container">
-                <!-- Page Header -->
-                <div class="page-header">
-                    <h2>Materials Management</h2>
-                    <button class="upload-btn" onclick="showUploadModal()">
-                        <i class="fa-solid fa-plus"></i> Upload Material
-                    </button>
-                </div>
-
+               
                 <!-- Loading Indicator -->
                 <div id="loadingContainer" class="loading-container" style="display: none;">
                     <img src="loading.gif" alt="Loading..." class="loading-gif" />
@@ -429,59 +422,8 @@
         </main>
     </div>
 
-    <!-- Upload Modal -->
-    <div id="uploadModal" class="modal" style="display: none;">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Upload Material</h3>
-                <button class="modal-close" onclick="hideUploadModal()">
-                    <i class="fa-solid fa-times"></i>
-                </button>
-            </div>
-            <form id="uploadForm" class="upload-form" onsubmit="handleUploadSubmit(event)">
-                <div class="form-group">
-                    <label for="uploadTitle">Title</label>
-                    <input type="text" id="uploadTitle" name="title" required placeholder="Enter material title">
-                </div>
-                <div class="form-group">
-                    <label for="uploadDescription">Description</label>
-                    <textarea id="uploadDescription" name="description"
-                        placeholder="Enter material description"></textarea>
-                </div>
-                <div class="form-group">
-                    <label for="uploadType">Type</label>
-                    <select id="uploadType" name="type" required>
-                        <option value="">Select type</option>
-                        <option value="Notes">Notes</option>
-                        <option value="Syllabus">Syllabus</option>
-                        <option value="Previous Question">Previous Question</option>
-                        <option value="Slides">Slides</option>
-                        <option value="Lab Manual">Lab Manual</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="uploadSemester">Semester</label>
-                    <input type="text" id="uploadSemester" name="semester" required placeholder="Enter semester">
-                </div>
-                <div class="form-group">
-                    <label for="uploadSubject">Subject</label>
-                    <input type="text" id="uploadSubject" name="subject" required placeholder="Enter subject">
-                </div>
-                <div class="form-group">
-                    <label for="uploadFile">File</label>
-                    <input type="file" id="uploadFile" name="file" accept=".pdf" required>
-                </div>
-                <div class="form-actions">
-                    <button type="button" class="btn cancel-btn" onclick="hideUploadModal()">
-                        Cancel
-                    </button>
-                    <button type="submit" class="btn save-btn">
-                        Upload Material
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
+    
+    
 
     <!-- Edit Modal -->
     <div id="editModal" class="modal" style="display: none;">
@@ -559,7 +501,7 @@
                 });
 
                 if (response.ok) {
-                    // Token is valid - load page
+                   
                     loadUserData();
                     loadMaterials();
                 } else {
