@@ -66,8 +66,9 @@ const loginLimiter = (req, res, next) => {
         const remainingTime = Math.ceil((attemptData.lockoutUntil - now) / 1000);
         return res.status(429).json({
             success: false,
-            message: `Too many login attempts. Please try again after ${remainingTime} seconds.`,
-            lockoutTime: remainingTime
+            message: 'Too many login attempts. Please try again later.',
+            lockoutTime: remainingTime,
+            attempts: attemptData.attempts
         });
     }
 
@@ -86,9 +87,9 @@ const incrementLoginAttempts = (email) => {
 
     attemptData.attempts++;
 
-    // Lockout after 5 failed attempts for 90 seconds
+    // Lockout after 5 failed attempts for 200 seconds
     if (attemptData.attempts >= 5) {
-        attemptData.lockoutUntil = Date.now() + 90 * 1000; // 90 seconds
+        attemptData.lockoutUntil = Date.now() + 200 * 1000; // 200 seconds lockout
     }
 
     loginAttempts.set(normalizedEmail, attemptData);

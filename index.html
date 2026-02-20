@@ -139,7 +139,7 @@
       </div>
       <h2>Admin Login</h2>
       <p>Please enter your credentials to access the dashboard</p>
-        <h5>defualt gmail and pass</h5>
+      <h5>defualt gmail and pass</h5>
       <p>admin@example.com : admin1234@ADMIN</p>
 
       <div class="error-message" id="errorMessage">
@@ -166,7 +166,7 @@
         </button>
       </form>
 
-     
+
     </div>
   </div>
 
@@ -184,7 +184,7 @@
           <h2>Dashboard</h2>
         </div>
         <div class="profile">
-          <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80" alt="Admin">
+          <img src="logo.png" alt="Admin">
           <span>Admin User</span>
           <button onclick="logout()"
             style="margin-left: 15px; padding: 8px 15px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">
@@ -193,28 +193,6 @@
         </div>
       </div>
 
-      <!-- Stats Grid -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-info">
-            <h3>Total Users</h3>
-            <p id="totalUsers">0</p>
-          </div>
-          <div class="stat-icon icon-users">
-            <i class="fa-solid fa-users"></i>
-          </div>
-        </div>
-
-        <div class="stat-card">
-          <div class="stat-info">
-            <h3>Files</h3>
-            <p>5</p>
-          </div>
-          <div class="stat-icon icon-files">
-            <i class="fa-solid fa-file"></i>
-          </div>
-        </div>
-      </div>
 
       <!-- Card -->
       <div class="card">
@@ -273,25 +251,76 @@
           showDashboard();
         } else {
           // Failed login
-          errorMessage.textContent = data.message || 'Invalid email or password';
-          errorMessage.classList.add('show');
+          if (response.status === 429 && data.lockoutTime) {
+            // Show lockout message with countdown
+            errorMessage.textContent = `Too many login attempts. Please try again in ${data.lockoutTime} seconds.`;
+            errorMessage.classList.add('show');
+            startCountdown(data.lockoutTime);
+          } else {
+            errorMessage.textContent = data.message || 'Invalid email or password';
+            errorMessage.classList.add('show');
 
-          // Shake animation for error
-          loginForm.style.animation = 'shake 0.5s';
-          setTimeout(() => {
-            loginForm.style.animation = '';
-          }, 500);
+            // Shake animation for error
+            loginForm.style.animation = 'shake 0.5s';
+            setTimeout(() => {
+              loginForm.style.animation = '';
+            }, 500);
+          }
         }
       } catch (error) {
         console.error('Login error:', error);
         errorMessage.textContent = 'Connection error. Please check if the server is running.';
         errorMessage.classList.add('show');
       } finally {
-        // Re-enable button
-        loginBtn.disabled = false;
-        loginBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Login';
+        // Re-enable button unless there's an active countdown
+        if (!window.loginCountdownInterval) {
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Login';
+        }
       }
     });
+
+    // Countdown timer function
+    function startCountdown(seconds) {
+      const loginBtn = loginForm.querySelector('.login-btn');
+      const emailInput = document.getElementById('email');
+      const passwordInput = document.getElementById('password');
+
+      // Disable all form elements
+      loginBtn.disabled = true;
+      emailInput.disabled = true;
+      passwordInput.disabled = true;
+
+      let remainingSeconds = seconds;
+
+      // Update button text with countdown
+      loginBtn.innerHTML = `<i class="fa-solid fa-clock"></i> Try again in ${remainingSeconds}s`;
+
+      // Clear existing interval if any
+      if (window.loginCountdownInterval) {
+        clearInterval(window.loginCountdownInterval);
+      }
+
+      // Start countdown interval
+      window.loginCountdownInterval = setInterval(() => {
+        remainingSeconds--;
+
+        if (remainingSeconds > 0) {
+          loginBtn.innerHTML = `<i class="fa-solid fa-clock"></i> Try again in ${remainingSeconds}s`;
+          errorMessage.textContent = `Too many login attempts. Please try again in ${remainingSeconds} seconds.`;
+        } else {
+          // Countdown complete - enable form elements
+          clearInterval(window.loginCountdownInterval);
+          window.loginCountdownInterval = null;
+
+          loginBtn.disabled = false;
+          loginBtn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Login';
+          emailInput.disabled = false;
+          passwordInput.disabled = false;
+          errorMessage.classList.remove('show');
+        }
+      }, 1000);
+    }
 
     // Verify token and show dashboard
     async function verifyTokenAndShowDashboard() {

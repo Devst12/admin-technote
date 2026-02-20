@@ -391,7 +391,7 @@
                     <h2>Materials Management</h2>
                 </div>
                 <div class="profile">
-                    <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80" alt="Admin">
+                    <img src="logo.png" alt="Admin">
                     <span id="userEmail">Admin User</span>
                     <button onclick="logout()"
                         style="margin-left: 15px; padding: 8px 15px; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 14px;">
@@ -402,7 +402,7 @@
 
             <!-- Materials Content -->
             <div class="materials-container">
-               
+
                 <!-- Loading Indicator -->
                 <div id="loadingContainer" class="loading-container" style="display: none;">
                     <img src="loading.gif" alt="Loading..." class="loading-gif" />
@@ -422,8 +422,8 @@
         </main>
     </div>
 
-    
-    
+
+
 
     <!-- Edit Modal -->
     <div id="editModal" class="modal" style="display: none;">
@@ -501,7 +501,7 @@
                 });
 
                 if (response.ok) {
-                   
+
                     loadUserData();
                     loadMaterials();
                 } else {

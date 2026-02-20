@@ -51,7 +51,7 @@
         </div>
 
         <div class="profile">
-          <img src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=80" alt="Admin">
+          <img src="logo.png" alt="Admin">
           <span>Admin User</span>
         </div>
       </div>
@@ -125,16 +125,16 @@
 
   <script src="global.js"></script>
 
-<script>
-  // Check if user is logged in
-  const token = localStorage.getItem('authToken');
-  if (!token) {
-    window.location.href = 'index.html';
-  }
+  <script>
+    // Check if user is logged in
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      window.location.href = 'index.html';
+    }
 
-  const form = document.getElementById('uploadForm');
-  const statusMsg = document.getElementById('statusMessage');
-  const submitBtn = document.getElementById('submitBtn');
+    const form = document.getElementById('uploadForm');
+    const statusMsg = document.getElementById('statusMessage');
+    const submitBtn = document.getElementById('submitBtn');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
