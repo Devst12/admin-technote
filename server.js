@@ -126,7 +126,7 @@ const Material = mongoose.model('Material', new mongoose.Schema({
     subject: String,
     description: String,
     fileName: String,
-    fileUrl: String,  // Changed from filePath to fileUrl
+    fileUrl: String,
     uploadedAt: { type: Date, default: Date.now }
 }));
 
@@ -297,6 +297,222 @@ app.post('/api/logout', verifyToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Server error during logout'
+        });
+    }
+});
+
+// ================= USER MANAGEMENT ROUTES (ADMIN ONLY) =================
+
+// 📋 GET ALL USERS
+app.get('/api/users', verifyToken, async (req, res) => {
+    try {
+        // Only allow superadmin and admin to access user list
+        if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Admin privileges required.'
+            });
+        }
+
+        const users = await AuthUser.find({}, '-password').sort({ createdAt: -1 });
+        res.json({
+            success: true,
+            users: users
+        });
+    } catch (error) {
+        console.error('Error fetching users:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during fetching users'
+        });
+    }
+});
+
+// ➕ CREATE NEW USER
+app.post('/api/users', verifyToken, async (req, res) => {
+    try {
+        // Only allow superadmin and admin to create users
+        if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Admin privileges required.'
+            });
+        }
+
+        const { email, password, role = 'user' } = req.body;
+
+        // Validate input
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email and password are required'
+            });
+        }
+
+        // Admin can only create users with 'user' role
+        if (role !== 'user') {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only create users with "user" role'
+            });
+        }
+
+        // Check if user already exists
+        const existingUser = await AuthUser.findOne({ email: email.toLowerCase() });
+        if (existingUser) {
+            return res.status(409).json({
+                success: false,
+                message: 'Email already registered'
+            });
+        }
+
+        // Hash password with bcrypt
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+        // Create new user (default role is user)
+        const newUser = new AuthUser({
+            email: email.toLowerCase(),
+            password: hashedPassword,
+            role: 'user' // Always create as user role
+        });
+
+        await newUser.save();
+
+        // Return user without password
+        const userWithoutPassword = await AuthUser.findById(newUser._id).select('-password');
+
+        res.status(201).json({
+            success: true,
+            message: 'User created successfully!',
+            user: userWithoutPassword
+        });
+    } catch (error) {
+        console.error('Error creating user:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during user creation'
+        });
+    }
+});
+
+// ✏️ UPDATE USER ROLE
+app.put('/api/users/:id/role', verifyToken, async (req, res) => {
+    try {
+        // Role update is disabled - users cannot change roles
+        return res.status(403).json({
+            success: false,
+            message: 'Role update is disabled. Please contact superadmin for role changes.'
+        });
+    } catch (error) {
+        console.error('Error updating user role:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during role update'
+        });
+    }
+});
+
+// 🔄 CHANGE USER PASSWORD
+app.put('/api/users/:id/password', verifyToken, async (req, res) => {
+    try {
+        // Only allow superadmin, admin, or the user themselves to change password
+        const userId = req.params.id;
+        const { newPassword } = req.body;
+
+        const user = await AuthUser.findById(userId);
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Admin can only change password for users with 'user' role
+        if (user.role !== 'user' && req.user.role !== 'superadmin') {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only manage passwords for users with "user" role'
+            });
+        }
+
+        // Hash new password directly (admin doesn't need old password)
+        const saltRounds = 10;
+        const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
+
+        await AuthUser.findByIdAndUpdate(
+            userId,
+            { password: hashedPassword }
+        );
+
+        res.json({
+            success: true,
+            message: 'Password changed successfully!'
+        });
+    } catch (error) {
+        console.error('Error changing password:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during password change'
+        });
+    }
+});
+
+// 🗑 DELETE USER
+app.delete('/api/users/:id', verifyToken, async (req, res) => {
+    try {
+        // Only allow superadmin and admin to delete users
+        if (req.user.role !== 'superadmin' && req.user.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied. Admin privileges required.'
+            });
+        }
+
+        const userId = req.params.id;
+
+        // Check if target user exists
+        const targetUser = await AuthUser.findById(userId);
+        if (!targetUser) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Admin can only delete users with 'user' role
+        if (targetUser.role !== 'user') {
+            return res.status(403).json({
+                success: false,
+                message: 'You can only delete users with "user" role'
+            });
+        }
+
+        // Prevent deleting yourself
+        if (req.user.userId === userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'You cannot delete your own account'
+            });
+        }
+
+        const deletedUser = await AuthUser.findByIdAndDelete(userId);
+        if (!deletedUser) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'User deleted successfully!'
+        });
+    } catch (error) {
+        console.error('Error deleting user:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Server error during user deletion'
         });
     }
 });
